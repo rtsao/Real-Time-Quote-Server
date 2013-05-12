@@ -45,7 +45,18 @@ function getQuotes() {
                         return false;
                     }
 
-                    quotes.forEach(publishQuote);
+                    //quotes.forEach(publishQuote);
+                    quotes.forEach(function(element) {
+                        var quote = JSON.stringify(element);
+
+                        serverRedis.hget('quotes',element.e+':'+element.t,function(err, reply) {
+                            if (reply !== quote) {
+                                serverRedis.hset('quotes',element.e+':'+element.t,quote);
+                                publishQuote(element);
+                            }
+                        });
+
+                    });
 
                 }
             });
@@ -69,6 +80,7 @@ function prune(ticker) {
         multi = serverRedis.multi();
         if (reply<1) {
             multi.hdel('tickers',ticker);
+            multi.hdel('quotes',ticker);
             console.log('deleting',ticker);
         }
         multi.exec(redis.print);
@@ -85,7 +97,7 @@ wss.on('connection', function(socket) {
 
     var sendMessage = function (channel, message) {
         console.log('message heard!');
-        socket.send('channel: ' + channel + ' message: ' + message);
+        socket.send(message);
     }
     
     var stockList = [];
@@ -118,7 +130,8 @@ wss.on('connection', function(socket) {
                 var index = stockList.indexOf(ticker);
                 if (index !== -1) {
                     stockList.splice(index,1);
-                    serverRedis.hincrby('tickers',ticker,-1);
+                    //serverRedis.hincrby('tickers',ticker,-1);
+                    removeStock(ticker);
                     userClient.unsubscribe(ticker);
                 }
             });
@@ -162,7 +175,12 @@ function addStocks(list,client) {
 
 function removeStock(ticker) {
     //Decrement stock ticker
-    serverRedis.hincrby('tickers',ticker,-1);
+    serverRedis.hincrby('tickers',ticker,-1, function(err,reply) {
+        if (reply<=0) {
+            prune(ticker);
+        }
+        console.log(reply);
+    });
 }
 
 function removeStockAtomic(ticker) {
